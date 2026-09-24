@@ -1,0 +1,868 @@
+                    MARKETING
+        ┌─────────────────────────────────┐
+        │ Bienvenido, Usuario             │
+        └─────────────────────────────────┘
+
+ ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐
+ │ CAMPAÑAS  │ │ MATERIALES│ │ PENDIENTES│ │AUTORIZADOS│
+ │    12     │ │    148    │ │     6     │ │    97     │
+ └───────────┘ └───────────┘ └───────────┘ └───────────┘
+
+        PRÓXIMOS CONTENIDOS
+        ─────────────────────────────
+        20 SEP   Flyer promoción
+        25 SEP   Publicación redes
+        01 OCT   Campaña Octubre
+
+        CAMPAÑAS ACTIVAS
+        ─────────────────────────────
+        • Septiembre
+        • Promoción de servicios
+        • Campaña institucional
+
+        C:\xampp\htdocs\
+│
+├── inventario\
+│   ├── index.php
+│   ├── usuarios.php
+│   ├── auditoria.php
+│   ├── conexion.php
+│   ├── seguridad.php
+│   └── ...
+│
+└── marketing\
+    ├── index.php
+    ├── conexion.php
+    ├── seguridad.php
+    ├── menu.php
+    │
+    ├── dashboard.php
+    ├── materiales.php
+    ├── subir_material.php
+    ├── descargar.php
+    │
+    ├── campanas.php
+    ├── nueva_campana.php
+    ├── calendario.php
+    │
+    ├── autorizaciones.php
+    ├── temporadas.php
+    ├── recordatorios.php
+    ├── reportes.php
+    │
+    ├── uploads\
+    │   └── marketing\
+    │
+    └── assets\
+        ├── css\
+        ├── js\
+        └── img\
+
+                         MARKETING
+                     │
+        ┌────────────┴────────────┐
+        │                         │
+       ADMIN                    USUARIOS
+        │                         │
+        │                    Subir materiales
+        │                    Crear campañas
+        │                    Consultar
+        │                         │
+        │                         ▼
+        │                    AUTORIZACIÓN
+        │                         │
+        │                    ┌────┴────┐
+        │                    │         │
+        │                 GERENCIA   RECHAZADO
+        │                    │
+        │                 AUTORIZADO
+        │                    │
+        └────────────────────┘
+                     │
+                     ▼
+              MATERIAL PUBLICADO
+                     │
+                     ▼
+                  DESCARGA
+
+Perfecto. Con esto ya podemos diseñar Marketing **sin tocar el funcionamiento de Inventario**.
+
+Veo que actualmente tienes:
+
+* Base de datos: `inventario_db`
+* Conexión MySQL mediante `conexion.php`
+* Sesión con `usuario_id`, `empleado_id`, `nombre_usuario`, `nombre_empleado` y `rol`
+* Roles actuales `ADMIN` y `GERENCIA`
+* `verificar_admin()` y `verificar_gerencia()`
+
+Para Marketing, yo **no reutilizaría directamente `$_SESSION['rol']` como permiso**, porque eso podría provocar que un usuario de Marketing termine teniendo acceso a Inventario.
+
+## Cómo lo vamos a manejar
+
+La misma base:
+
+```text
+inventario_db
+```
+
+pero agregamos tablas exclusivas de Marketing.
+
+Por ejemplo:
+
+```text
+empleados
+usuarios
+...
+marketing_usuarios
+marketing_materiales
+marketing_campanas
+marketing_autorizaciones
+marketing_calendario
+marketing_temporadas
+marketing_recordatorios
+```
+
+### Usuarios de Marketing
+
+La tabla `marketing_usuarios` podría quedar conceptualmente así:
+
+```text
+id
+empleado_id
+rol
+activo
+fecha_alta
+```
+
+Y los roles serían:
+
+```text
+ADMIN
+GERENCIA
+MARKETING
+AUDITOR
+```
+
+De esta manera podemos tener:
+
+```text
+EMPLEADO
+   │
+   ├── INVENTARIO
+   │      └── ADMIN
+   │
+   └── MARKETING
+          └── ADMIN
+```
+
+o:
+
+```text
+EMPLEADO
+   │
+   └── MARKETING
+          └── GERENCIA
+```
+
+o:
+
+```text
+EMPLEADO
+   │
+   └── MARKETING
+          └── AUDITOR
+```
+
+### Permisos
+
+Propongo inicialmente:
+
+**ADMIN Marketing**
+
+* Dashboard
+* Subir materiales
+* Editar
+* Eliminar
+* Descargar
+* Crear campañas
+* Modificar campañas
+* Calendario
+* Temporadas
+* Recordatorios
+* Autorizaciones
+* Reportes
+* Administrar usuarios de Marketing
+
+**GERENCIA**
+
+* Dashboard
+* Ver campañas
+* Ver materiales
+* Descargar
+* Revisar materiales
+* Autorizar
+* Rechazar
+* Ver calendario
+* Ver reportes
+
+**MARKETING**
+
+* Dashboard
+* Subir materiales
+* Crear campañas
+* Consultar materiales
+* Descargar materiales autorizados
+* Consultar calendario
+
+**AUDITOR**
+
+* Dashboard
+* Solo consulta
+* Ver campañas
+* Ver materiales
+* Ver autorizaciones
+* Ver historial
+* Descargar, si queremos habilitarlo
+
+---
+
+## Y `marketing/seguridad.php` será independiente
+
+No vamos a copiar exactamente tu `seguridad.php` actual.
+
+Tendremos algo parecido a:
+
+```text
+marketing/
+│
+├── conexion.php
+├── seguridad.php
+├── login.php
+├── logout.php
+├── index.php
+├── menu.php
+│
+└── ...
+```
+
+`marketing/seguridad.php` tendrá funciones específicas como:
+
+```php
+verificar_sesion_marketing();
+verificar_admin_marketing();
+verificar_gerencia_marketing();
+verificar_marketing();
+verificar_auditor_marketing();
+```
+
+Así queda aislado de Inventario.
+
+---
+
+# Hay un punto que necesitamos resolver antes de crear las tablas
+
+Necesito conocer **cómo están actualmente las tablas `empleados` y `usuarios`**.
+
+Tu `conexion.php` ya nos dice que la base es:
+
+```text
+inventario_db
+```
+
+pero todavía no sabemos exactamente cómo están construidas esas dos tablas.
+
+Por ejemplo, necesitamos saber si tienes algo parecido a:
+
+```text
+empleados
+--------------------------------
+id
+nombre
+apellido
+numero_empleado
+departamento
+puesto
+activo
+```
+
+y:
+
+```text
+usuarios
+--------------------------------
+id
+empleado_id
+usuario
+password
+rol
+activo
+```
+
+No quiero inventar esos campos porque después podríamos romper el login que ya tienes funcionando.
+
+### Haz esto en phpMyAdmin
+
+Entra a:
+
+```text
+inventario_db
+```
+
+y busca las tablas:
+
+```text
+empleados
+usuarios
+```
+
+Mándame **la estructura de esas dos tablas**. Puedes copiar aquí el resultado de la pestaña **Estructura**, o mandar una captura.
+
+Con eso te preparo primero:
+
+```text
+/marketing/
+    conexion.php
+    seguridad.php
+    login.php
+    logout.php
+    index.php
+```
+
+y dejamos funcionando **el acceso independiente de Marketing usando los mismos empleados de la empresa**, antes de empezar con los flyers, campañas y autorizaciones.
+http://grupoprotec/marketing/
+              ↓
+        LOGIN MARKETING
+              ↓
+       usuario + contraseña
+              ↓
+       tabla usuarios
+              ↓
+       validar contraseña
+              ↓
+   marketing_usuarios
+              ↓
+      validar permisos
+              ↓
+       DASHBOARD
+       Perfecto. Ahora sí tenemos las dos piezas necesarias: **`usuarios` y `empleados`**. Con esto podemos hacer Marketing correctamente.
+
+De `empleados` tenemos:
+
+```text
+id
+nombre
+numero_empleado
+area_id
+puesto
+activo
+fecha_registro
+```
+
+Y `usuarios` se relaciona mediante:
+
+```text
+usuarios.empleado_id → empleados.id
+```
+
+## Diseño definitivo de acceso para Marketing
+
+No vamos a modificar:
+
+* `usuarios`
+* `empleados`
+* los roles actuales de Inventario
+* el login actual de Inventario
+
+Vamos a agregar una tabla:
+
+```text
+marketing_usuarios
+```
+
+que determinará quién puede entrar al módulo de Marketing.
+
+### Ejemplo con tus empleados actuales
+
+Actualmente tenemos, entre otros:
+
+```text
+empleado_id 1 → Ing. Sistemas
+empleado_id 4 → Gerente Grupo Protec
+```
+
+Podremos asignar:
+
+```text
+marketing_usuarios
+---------------------------------
+empleado_id | rol_marketing
+---------------------------------
+1           | ADMIN
+4           | GERENCIA
+...
+```
+
+Los demás empleados podrán tener acceso como `MARKETING` o `AUDITOR` cuando los demos de alta.
+
+---
+
+# Una mejora importante
+
+Como **Marketing es otro departamento**, yo agregaría también una tabla de permisos en lugar de depender únicamente del puesto o del `area_id`.
+
+Así podremos tener:
+
+### ADMIN
+
+Control completo.
+
+### GERENCIA
+
+Puede:
+
+* revisar campañas;
+* revisar flyers;
+* autorizar;
+* rechazar;
+* consultar historial;
+* descargar;
+* consultar reportes.
+
+### MARKETING
+
+Puede:
+
+* subir flyers;
+* subir imágenes;
+* crear campañas;
+* programar contenido;
+* consultar materiales;
+* descargar materiales autorizados.
+
+### AUDITOR
+
+Puede:
+
+* consultar;
+* revisar historial;
+* ver quién subió cada archivo;
+* ver quién autorizó;
+* consultar campañas;
+* descargar, si lo habilitamos.
+
+---
+
+# Y la parte de archivos
+
+No vamos a guardar las imágenes directamente dentro de MySQL.
+
+Guardaremos el archivo físicamente:
+
+```text
+C:\xampp\htdocs\marketing\uploads\
+```
+
+y en MySQL guardamos sus datos:
+
+```text
+marketing_materiales
+```
+
+Por ejemplo:
+
+```text
+id
+campana_id
+nombre
+archivo
+tipo_archivo
+ruta
+descripcion
+usuario_subio
+estado
+fecha_subida
+```
+
+Así podemos tener cientos o miles de flyers sin hacer enorme la base de datos.
+
+---
+
+# Estructura que vamos a construir
+
+```text
+C:\xampp\htdocs\
+│
+├── inventario\
+│
+└── marketing\
+    │
+    ├── index.php
+    ├── login.php
+    ├── logout.php
+    ├── conexion.php
+    ├── seguridad.php
+    ├── menu.php
+    │
+    ├── dashboard.php
+    │
+    ├── materiales.php
+    ├── subir_material.php
+    ├── ver_material.php
+    ├── descargar.php
+    │
+    ├── campanas.php
+    ├── nueva_campana.php
+    ├── editar_campana.php
+    │
+    ├── autorizaciones.php
+    ├── autorizar.php
+    ├── rechazar.php
+    │
+    ├── calendario.php
+    ├── temporadas.php
+    ├── recordatorios.php
+    │
+    ├── usuarios.php
+    ├── reportes.php
+    │
+    ├── uploads\
+    │   └── marketing\
+    │
+    └── assets\
+        ├── css\
+        ├── js\
+        └── img\
+```
+
+## Y las tablas
+
+Yo empezaría con estas:
+
+```text
+marketing_usuarios
+marketing_campanas
+marketing_materiales
+marketing_autorizaciones
+marketing_calendario
+marketing_temporadas
+marketing_recordatorios
+marketing_categorias
+```
+
+### Flujo completo
+
+```text
+                 MARKETING
+                     │
+                     ▼
+                 Dashboard
+                     │
+       ┌─────────────┼─────────────┐
+       ▼             ▼             ▼
+   Materiales     Campañas      Calendario
+       │             │             │
+       └─────────────┼─────────────┘
+                     ▼
+              AUTORIZACIÓN
+                     │
+              ┌──────┴──────┐
+              ▼             ▼
+          GERENCIA       RECHAZADO
+              │
+              ▼
+         AUTORIZADO
+              │
+              ▼
+       Disponible para
+          descarga
+```
+
+Y más adelante podemos agregar al dashboard algo como:
+
+**"Contenido recomendado para septiembre"**, **"próximos recordatorios"**, **"material pendiente de autorización"**, etc.
+
+Esto nos deja un sistema que no solamente almacena flyers, sino que funciona como un **pequeño gestor de Marketing y contenido de la empresa**.
+
+### Siguiente paso
+
+Ya podemos dejar de analizar las tablas actuales y empezar a construir.
+
+**El siguiente archivo que te recomiendo crear es `marketing_db.sql`**, con todas las tablas nuevas y sus relaciones, diseñado específicamente para tu estructura actual de `usuarios` y `empleados`.
+
+Después de ejecutarlo en `inventario_db`, hacemos **`marketing/conexion.php` → `marketing/seguridad.php` → `marketing/login.php` → `marketing/index.php`** y probamos el acceso antes de continuar.
+Excelente. Entonces ya tenemos **la base y los accesos funcionando correctamente**.
+
+Ahora podemos pasar al siguiente nivel: **hacer que Marketing ya parezca un sistema completo**, no solo una página de acceso.
+
+## PASO 11 — Menú principal de Marketing
+
+Vamos a crear:
+
+```text
+C:\xampp\htdocs\marketing\menu.php
+```
+
+Este menú será dinámico según el `rol_marketing`.
+
+### ADMIN verá
+
+```text
+📊 Dashboard
+📁 Materiales
+📢 Campañas
+📅 Calendario
+✅ Autorizaciones
+🌤 Temporadas
+🔔 Recordatorios
+👥 Usuarios
+📊 Reportes
+🚪 Cerrar sesión
+```
+
+### GERENCIA verá
+
+```text
+📊 Dashboard
+📁 Materiales
+📢 Campañas
+📅 Calendario
+✅ Autorizaciones
+🌤 Temporadas
+🔔 Recordatorios
+📊 Reportes
+🚪 Cerrar sesión
+```
+
+### MARKETING verá
+
+```text
+📊 Dashboard
+📁 Materiales
+📢 Campañas
+📅 Calendario
+🌤 Temporadas
+🔔 Recordatorios
+🚪 Cerrar sesión
+```
+
+### AUDITOR verá
+
+```text
+📊 Dashboard
+📁 Materiales
+📢 Campañas
+📅 Calendario
+🔎 Historial
+📊 Reportes
+🚪 Cerrar sesión
+```
+
+Y vamos a hacerlo pensando desde ahora en el diseño que usaremos en todas las páginas, para no tener que rediseñarlas una por una después.
+
+---
+
+## También agregaremos una barra superior
+
+Algo como:
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ 📣 MARKETING                          Lizbeth Pozos           │
+│                                      ADMIN                   │
+├──────────────┬───────────────────────────────────────────────┤
+│              │                                               │
+│ 📊 Dashboard │              CONTENIDO                        │
+│              │                                               │
+│ 📁 Materiales│                                               │
+│              │                                               │
+│ 📢 Campañas  │                                               │
+│              │                                               │
+│ 📅 Calendario│                                               │
+│              │                                               │
+│ ✅ Autorizar │                                               │
+│              │                                               │
+│ 🌤 Temporadas│                                               │
+│              │                                               │
+│ 🔔 Recordat. │                                               │
+│              │                                               │
+│ 👥 Usuarios  │                                               │
+│              │                                               │
+│ 📊 Reportes  │                                               │
+│              │                                               │
+│ 🚪 Salir     │                                               │
+└──────────────┴───────────────────────────────────────────────┘
+```
+
+### Y algo importante
+
+No voy a tocar el diseño de Inventario. El CSS y los archivos de Marketing estarán dentro de:
+
+```text
+/marketing/assets/
+```
+
+para que podamos modificar el aspecto de Marketing independientemente.
+
+---
+
+### Después del menú
+
+Una vez que comprobemos que el menú funciona, seguimos en este orden:
+
+**1. Menú** ✅ siguiente
+**2. Dashboard real**
+**3. Usuarios de Marketing**
+**4. Categorías**
+**5. Subir flyers/imágenes/PDF**
+**6. Vista previa y descarga**
+**7. Campañas**
+**8. Autorización de Gerencia**
+**9. Calendario**
+**10. Temporadas y recomendaciones**
+**11. Recordatorios**
+**12. Auditoría e historial**
+
+Así vamos construyendo y probando cada módulo sin romper lo que ya funciona.
+Vamos. Ahora construiremos **Materiales**, que será uno de los módulos principales.
+
+Pero antes de escribir `materiales.php`, quiero hacerlo sobre **las columnas reales que ya creamos** para evitar errores de `Unknown column`.
+
+## PASO 13 — Revisar `marketing_materiales`
+
+En phpMyAdmin entra a:
+
+**`inventario_db → marketing_materiales → Estructura`**
+
+O, más rápido, ve a **SQL** y ejecuta:
+
+```sql
+DESCRIBE marketing_materiales;
+```
+
+Mándame la captura del resultado.
+
+### ¿Por qué hacemos esto?
+
+Porque `materiales.php` tendrá que manejar cosas como:
+
+* 📷 Imagen
+* 📄 PDF
+* 🎨 Flyer
+* 🎬 Video
+* 📁 Documento
+* Nombre del material
+* Descripción
+* Categoría
+* Campaña
+* Temporada
+* Fecha
+* Usuario que lo subió
+* Estado
+* Autorización
+* Archivo físico
+
+Y quiero conectar exactamente esos campos con la tabla que ya tenemos.
+
+---
+
+## La funcionalidad que vamos a construir
+
+La pantalla final será aproximadamente:
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ 📣 Marketing                         Usuario       ADMIN     │
+├────────────────┬─────────────────────────────────────────────┤
+│                │                                             │
+│ 📊 Dashboard   │  MATERIALES DE MARKETING                   │
+│                │                                             │
+│ 📁 Materiales  │  ┌───────────────────────────────────────┐  │
+│                │  │       + SUBIR NUEVO MATERIAL          │  │
+│ 📢 Campañas    │  └───────────────────────────────────────┘  │
+│                │                                             │
+│ 📅 Calendario  │  Buscar: [________________] 🔍              │
+│                │                                             │
+│ ✅ Autorizac.  │  Categoría: [Todas ▼] Estado: [Todos ▼]    │
+│                │                                             │
+│ 🌤 Temporadas  │  ┌────────┐ ┌────────┐ ┌────────┐          │
+│                │  │ 🖼️     │ │ 🖼️     │ │ 📄     │          │
+│ 🔔 Recordat.   │  │ Flyer  │ │ Promo  │ │ PDF    │          │
+│                │  │        │ │        │ │        │          │
+│ 👥 Usuarios    │  │Pendiente│ │Autorizado│ │Pendiente│       │
+│                │  │        │ │        │ │        │          │
+│ 📈 Reportes    │  │ Ver    │ │ Descargar│ │ Ver   │          │
+│                │  └────────┘ └────────┘ └────────┘          │
+└────────────────┴─────────────────────────────────────────────┘
+```
+
+Y al presionar **Subir nuevo material**:
+
+```text
+┌──────────────────────────────────────────────┐
+│          NUEVO MATERIAL                      │
+├──────────────────────────────────────────────┤
+│                                              │
+│ Nombre del material                          │
+│ [________________________________________]   │
+│                                              │
+│ Categoría                                    │
+│ [ Seleccionar categoría ▼ ]                  │
+│                                              │
+│ Campaña                                      │
+│ [ Seleccionar campaña ▼ ]                    │
+│                                              │
+│ Temporada                                    │
+│ [ Seleccionar temporada ▼ ]                  │
+│                                              │
+│ Descripción                                  │
+│ [________________________________________]   │
+│ [________________________________________]   │
+│                                              │
+│ Archivo                                      │
+│ ┌──────────────────────────────────────────┐ │
+│ │                                          │ │
+│ │       📎 Arrastra tu archivo aquí        │ │
+│ │             o selecciónalo               │ │
+│ │                                          │ │
+│ └──────────────────────────────────────────┘ │
+│                                              │
+│              [ GUARDAR MATERIAL ]            │
+└──────────────────────────────────────────────┘
+```
+
+Cuando se guarde:
+
+**ADMIN sube → PENDIENTE → Gerencia revisa → AUTORIZADO/RECHAZADO.**
+
+Además, cada movimiento quedará registrado en:
+
+```text
+marketing_auditoria
+```
+
+Así tendremos trazabilidad de quién subió, quién autorizó y cuándo.
+
+**Mándame el resultado de `DESCRIBE marketing_materiales;` y te doy el `materiales.php` completo adaptado a tu tabla.**
+                    MARKETING
+                       │
+                       ▼
+                SUBE MATERIAL
+                       │
+                       ▼
+                  PENDIENTE
+                       │
+                       ▼
+               ┌───────────────┐
+               │   GERENCIA    │
+               │    REVISA     │
+               └───────┬───────┘
+                       │
+              ┌────────┴────────┐
+              ▼                 ▼
+        ┌───────────┐     ┌───────────┐
+        │ AUTORIZADO│     │ RECHAZADO │
+        └─────┬─────┘     └─────┬─────┘
+              │                 │
+              ▼                 ▼
+          DESCARGABLE       CORRECCIÓN
+

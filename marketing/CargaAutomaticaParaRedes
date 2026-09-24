@@ -1,0 +1,1910 @@
+
+Quiero que cuando cualquiera flayer, imagen autorizado o camopaña se autorice desde mi autorizaciones.php en automatico cuando pase la revision se suba a facebok e instahram con texto e imagen.
+.
+.
+.
+Sí. Lo que quieres se puede integrar directamente en tu flujo actual para que **`AUTORIZADO` sea el disparador de publicación**.
+
+Tu flujo quedaría así:
+
+**Marketing sube material → PENDIENTE → Gerencia revisa → AUTORIZADO → sistema prepara publicación → Facebook + Instagram → guarda resultado en MySQL → auditoría.**
+
+Para hacerlo correctamente, no conviene meter las credenciales de Facebook/Instagram directamente en `autorizaciones.php`. Lo ideal es crear un pequeño módulo de publicación.
+
+### Cómo quedaría
+
+Cuando presiones:
+
+> ✓ Autorizar
+
+tu código actualmente hace esto:
+
+```text
+marketing_materiales
+        ↓
+estado = AUTORIZADO
+        ↓
+marketing_autorizaciones
+        ↓
+marketing_auditoria
+```
+
+Lo ampliaríamos a:
+
+```text
+marketing_materiales
+        ↓
+estado = AUTORIZADO
+        ↓
+marketing_autorizaciones
+        ↓
+marketing_publicaciones
+        ↓
+       ┌───────────────┐
+       ↓               ↓
+   FACEBOOK        INSTAGRAM
+       ↓               ↓
+ ID publicación   ID publicación
+       └───────┬───────┘
+               ↓
+          AUDITORÍA
+```
+
+### También podemos hacer que el texto salga automáticamente
+
+Por ejemplo, si tu material tiene:
+
+**Nombre:**
+
+> Nuevo sistema de seguridad Grupo Protec
+
+**Descripción:**
+
+> Protege tu negocio con nuestras soluciones de seguridad.
+
+El sistema puede publicar:
+
+**Facebook:**
+
+> 🔐 Nuevo sistema de seguridad Grupo Protec
+>
+> Protege tu negocio con nuestras soluciones de seguridad.
+>
+> #GrupoProtec #Seguridad #Monterrey
+
+Y en Instagram utilizar la misma imagen y copy.
+
+Pero hay un punto importante: **Facebook e Instagram no se publican simplemente enviando una petición desde PHP al nombre de usuario**. Hay que configurar una integración con **Meta**, una Página de Facebook y una cuenta profesional de Instagram vinculada, además de los permisos/tokens correspondientes.
+
+### Yo modificaría tu sistema así
+
+Crearíamos:
+
+```text
+marketing/
+│
+├── autorizaciones.php
+├── publicaciones.php
+├── publicar_meta.php
+├── meta_config.php
+├── meta_api.php
+└── ...
+```
+
+Y en la base de datos una tabla, por ejemplo:
+
+```text
+marketing_publicaciones
+```
+
+con información como:
+
+```text
+id
+material_id
+facebook_estado
+facebook_publicacion_id
+facebook_fecha
+facebook_error
+instagram_estado
+instagram_publicacion_id
+instagram_fecha
+instagram_error
+texto_publicacion
+fecha_creacion
+fecha_actualizacion
+
+
+Así **no solamente sabrás que fue autorizado**, sino también:
+
+* qué material se publicó;
+* cuándo;
+* en Facebook;
+* en Instagram;
+* ID de la publicación;
+* si Facebook falló;
+* si Instagram falló;
+* mensaje del error;
+* texto que se publicó.
+
+### Algo que recomiendo especialmente en tu caso
+
+No haría que una falla de Facebook/Instagram haga que la autorización falle.
+
+Por ejemplo:
+
+```text
+GERENCIA
+   ↓
+AUTORIZA
+   ↓
+Material = AUTORIZADO
+   ↓
+Intentar Facebook
+   ↓
+Intentar Instagram
+   ↓
+Guardar resultado
+```
+
+Si Instagram tiene un problema:
+
+```text
+AUTORIZADO
+Facebook     ✓ PUBLICADO
+Instagram    ✕ ERROR
+```
+
+El material **sigue autorizado** y en `publicaciones.php` aparecería un botón:
+
+> 🔄 Reintentar Instagram
+
+Eso evita que una falla externa de Meta altere tu control interno.
+
+### Y podemos automatizar también el copy
+
+Incluso podemos agregar a `marketing_materiales` campos como:
+
+```text
+texto_publicacion
+hashtags
+```
+
+o, si ya tienes `descripcion`, utilizarla inicialmente como copy.
+
+Entonces tu pantalla de autorización podría mostrar:
+
+```text
+┌──────────────────────────────────────────────┐
+│ MATERIAL                                     │
+│                                              │
+│ [ IMAGEN ]   Campaña: Seguridad Empresarial  │
+│                                              │
+│              TEXTO PARA REDES                │
+│              ─────────────────────────────   │
+│              Protege tu negocio...           │
+│                                              │
+│              ☑ Facebook                      │
+│              ☑ Instagram                     │
+│                                              │
+│              ✓ AUTORIZAR Y PUBLICAR          │
+└──────────────────────────────────────────────┘
+```
+
+Y al autorizar:
+
+```text
+✓ Material autorizado y enviado a publicación.
+
+Facebook:  ✓ Publicado
+Instagram: ✓ Publicado
+```
+
+---
+
+**Importante:** para implementar la parte de Facebook/Instagram necesitamos configurar la conexión de Meta y sus credenciales/permisos. Busqué la documentación oficial actual de Meta para verificar los endpoints, pero en esta sesión el buscador no devolvió resultados de `developers.facebook.com`, así que no quiero inventarte nombres de endpoints o permisos que podrían haber cambiado.
+
+**Lo siguiente que haría es construirlo sobre tu código actual, sin cambiar el diseño de `autorizaciones.php`:**
+
+1. Crear `marketing_publicaciones`.
+2. Crear `meta_config.php`.
+3. Crear `meta_api.php`.
+4. Modificar tu bloque `AUTORIZADO`.
+5. Publicar automáticamente la imagen + texto.
+6. Registrar éxito/error de Facebook e Instagram.
+7. Crear `publicaciones.php` para consultar y reintentar publicaciones fallidas.
+8. Mantener toda la auditoría que ya tienes.
+
+Si quieres hacerlo **directamente en tu sistema Grupo Protec**, puedo darte primero el **SQL completo de `marketing_publicaciones` y los archivos PHP**, respetando exactamente la estructura que ya tienes.
+-
+-
+-
+Perfecto. Vamos a hacerlo **sobre tu estructura actual y sin cambiar el diseño de `autorizaciones.php`**.
+
+La primera versión tendrá este flujo:
+
+```text
+AUTORIZACIONES.PHP
+       │
+       │ ✓ AUTORIZAR
+       ▼
+marketing_materiales
+       │
+       ├── AUTORIZADO
+       │
+       ▼
+marketing_publicaciones
+       │
+       ├── FACEBOOK → PUBLICADO / ERROR
+       │
+       └── INSTAGRAM → PUBLICADO / ERROR
+```
+
+Además, si Facebook funciona pero Instagram falla, **el material seguirá autorizado** y podremos reintentar Instagram después.
+
+> **Importante:** para Instagram, la imagen debe estar disponible mediante una URL pública HTTPS. Si tu sistema está solamente en `http://grupoprotec/inventario/` dentro de XAMPP, Instagram no podrá acceder a esa imagen desde Internet. Primero podemos dejar toda la infraestructura lista y después conectar la URL pública.
+
+---
+
+# 1. Crear la tabla `marketing_publicaciones`
+
+En phpMyAdmin, dentro de tu base de datos, ejecuta:
+
+```sql
+CREATE TABLE IF NOT EXISTS marketing_publicaciones (
+
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+
+    material_id INT UNSIGNED NOT NULL,
+
+    texto_publicacion TEXT NULL,
+
+    facebook_estado ENUM(
+        'PENDIENTE',
+        'PUBLICANDO',
+        'PUBLICADO',
+        'ERROR',
+        'NO_CONFIGURADO'
+    ) NOT NULL DEFAULT 'PENDIENTE',
+
+    facebook_publicacion_id VARCHAR(255) NULL,
+
+    facebook_fecha DATETIME NULL,
+
+    facebook_error TEXT NULL,
+
+    instagram_estado ENUM(
+        'PENDIENTE',
+        'PUBLICANDO',
+        'PUBLICADO',
+        'ERROR',
+        'NO_CONFIGURADO'
+    ) NOT NULL DEFAULT 'PENDIENTE',
+
+    instagram_publicacion_id VARCHAR(255) NULL,
+
+    instagram_fecha DATETIME NULL,
+
+    instagram_error TEXT NULL,
+
+    intentos_facebook INT UNSIGNED NOT NULL DEFAULT 0,
+
+    intentos_instagram INT UNSIGNED NOT NULL DEFAULT 0,
+
+    ultima_publicacion DATETIME NULL,
+
+    fecha_creacion DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    fecha_actualizacion DATETIME NOT NULL
+        DEFAULT CURRENT_TIMESTAMP
+        ON UPDATE CURRENT_TIMESTAMP,
+
+    PRIMARY KEY (id),
+
+    UNIQUE KEY uk_material_publicacion (material_id),
+
+    KEY idx_facebook_estado (facebook_estado),
+
+    KEY idx_instagram_estado (instagram_estado),
+
+    KEY idx_material_id (material_id),
+
+    CONSTRAINT fk_publicacion_material
+        FOREIGN KEY (material_id)
+        REFERENCES marketing_materiales(id)
+        ON DELETE CASCADE
+        ON UPDATE CASCADE
+
+) ENGINE=InnoDB
+DEFAULT CHARSET=utf8mb4
+COLLATE=utf8mb4_unicode_ci;
+```
+
+Esto permitirá tener **una publicación por material autorizado**.
+
+---
+
+# 2. Crear `meta_config.php`
+
+Dentro de tu carpeta `marketing`, crea:
+
+```text
+C:\xampp\htdocs\inventario\marketing\meta_config.php
+```
+
+Contenido:
+
+```php
+<?php
+
+/*
+|--------------------------------------------------------------------------
+| CONFIGURACIÓN META
+|--------------------------------------------------------------------------
+|
+| IMPORTANTE:
+| Estos datos NO deben mostrarse en ninguna página HTML.
+|
+| Debes obtenerlos desde Meta Developers / Meta Business.
+|
+|--------------------------------------------------------------------------
+*/
+
+
+/*
+|--------------------------------------------------------------------------
+| API VERSION
+|--------------------------------------------------------------------------
+|
+| Déjala configurable para poder cambiarla cuando Meta retire
+| una versión anterior de Graph API.
+|
+*/
+
+define(
+    'META_API_VERSION',
+    'v23.0'
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| URL BASE
+|--------------------------------------------------------------------------
+*/
+
+define(
+    'META_GRAPH_URL',
+    'https://graph.facebook.com/' . META_API_VERSION
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| FACEBOOK PAGE
+|--------------------------------------------------------------------------
+*/
+
+define(
+    'META_PAGE_ID',
+    'PON_AQUI_EL_ID_DE_TU_PAGINA'
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| INSTAGRAM PROFESSIONAL ACCOUNT
+|--------------------------------------------------------------------------
+*/
+
+define(
+    'META_INSTAGRAM_USER_ID',
+    'PON_AQUI_EL_ID_DE_INSTAGRAM'
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| TOKEN
+|--------------------------------------------------------------------------
+|
+| Para producción NO recomiendo escribir el token directamente
+| en archivos públicos.
+|
+| Posteriormente podemos moverlo a una tabla de configuración
+| o variable de entorno.
+|
+*/
+
+define(
+    'META_ACCESS_TOKEN',
+    'PON_AQUI_EL_ACCESS_TOKEN'
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| URL PÚBLICA DE MARKETING
+|--------------------------------------------------------------------------
+|
+| EJEMPLO:
+|
+| https://www.grupoprotec.com/inventario/marketing/uploads/
+|
+| IMPORTANTE:
+|
+| Instagram necesita poder acceder a la imagen desde Internet.
+|
+*/
+
+define(
+    'MARKETING_PUBLIC_URL',
+    'https://TU-DOMINIO.COM/inventario/marketing/uploads/'
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| FACEBOOK
+|--------------------------------------------------------------------------
+*/
+
+define(
+    'META_PUBLICAR_FACEBOOK',
+    true
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| INSTAGRAM
+|--------------------------------------------------------------------------
+*/
+
+define(
+    'META_PUBLICAR_INSTAGRAM',
+    true
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| FUNCIÓN PARA VALIDAR CONFIGURACIÓN
+|--------------------------------------------------------------------------
+*/
+
+function meta_configuracion_valida()
+{
+    if (
+        META_PAGE_ID === '' ||
+        META_PAGE_ID === 'PON_AQUI_EL_ID_DE_TU_PAGINA'
+    ) {
+        return false;
+    }
+
+
+    if (
+        META_ACCESS_TOKEN === '' ||
+        META_ACCESS_TOKEN === 'PON_AQUI_EL_ACCESS_TOKEN'
+    ) {
+        return false;
+    }
+
+
+    return true;
+}
+```
+
+### No pongas todavía tus credenciales reales aquí.
+
+Primero vamos a preparar todo el sistema y después configuramos Meta.
+
+---
+
+# 3. Crear `meta_api.php`
+
+Ahora crea:
+
+```text
+C:\xampp\htdocs\inventario\marketing\meta_api.php
+```
+
+Con esto:
+
+```php
+<?php
+
+require_once __DIR__ . '/meta_config.php';
+
+
+/*
+|--------------------------------------------------------------------------
+| PETICIÓN GRAPH API
+|--------------------------------------------------------------------------
+*/
+
+function meta_request(
+    $endpoint,
+    $method = 'POST',
+    $data = []
+) {
+
+    $url =
+        META_GRAPH_URL .
+        '/' .
+        ltrim($endpoint, '/');
+
+
+    $ch = curl_init();
+
+
+    if ($method === 'GET') {
+
+        if (!empty($data)) {
+
+            $url .= '?' . http_build_query($data);
+
+        }
+
+    }
+
+
+    curl_setopt_array(
+        $ch,
+        [
+
+            CURLOPT_URL => $url,
+
+            CURLOPT_RETURNTRANSFER => true,
+
+            CURLOPT_TIMEOUT => 60,
+
+            CURLOPT_CONNECTTIMEOUT => 15,
+
+            CURLOPT_FOLLOWLOCATION => true,
+
+            CURLOPT_SSL_VERIFYPEER => true,
+
+            CURLOPT_SSL_VERIFYHOST => 2,
+
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json'
+            ]
+
+        ]
+    );
+
+
+    if ($method === 'POST') {
+
+        curl_setopt(
+            $ch,
+            CURLOPT_POST,
+            true
+        );
+
+
+        curl_setopt(
+            $ch,
+            CURLOPT_POSTFIELDS,
+            http_build_query($data)
+        );
+
+    }
+
+
+    $respuesta = curl_exec($ch);
+
+
+    $curl_error = curl_error($ch);
+
+
+    $http_code =
+        curl_getinfo(
+            $ch,
+            CURLINFO_HTTP_CODE
+        );
+
+
+    curl_close($ch);
+
+
+    if ($respuesta === false) {
+
+        return [
+
+            'ok' => false,
+
+            'http_code' => $http_code,
+
+            'error' => $curl_error,
+
+            'data' => null
+
+        ];
+
+    }
+
+
+    $json =
+        json_decode(
+            $respuesta,
+            true
+        );
+
+
+    if (
+        !is_array($json)
+    ) {
+
+        return [
+
+            'ok' => false,
+
+            'http_code' => $http_code,
+
+            'error' =>
+                'Meta devolvió una respuesta no válida.',
+
+            'raw' => $respuesta,
+
+            'data' => null
+
+        ];
+
+    }
+
+
+    if (
+        isset($json['error'])
+    ) {
+
+        return [
+
+            'ok' => false,
+
+            'http_code' => $http_code,
+
+            'error' =>
+                $json['error']['message']
+                ?? 'Error desconocido de Meta.',
+
+            'data' => $json
+
+        ];
+
+    }
+
+
+    return [
+
+        'ok' =>
+            $http_code >= 200 &&
+            $http_code < 300,
+
+        'http_code' => $http_code,
+
+        'error' => null,
+
+        'data' => $json
+
+    ];
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| PUBLICAR EN FACEBOOK
+|--------------------------------------------------------------------------
+*/
+
+function meta_publicar_facebook(
+    $imagen_url,
+    $texto
+) {
+
+    if (
+        !META_PUBLICAR_FACEBOOK
+    ) {
+
+        return [
+
+            'ok' => false,
+
+            'estado' => 'NO_CONFIGURADO',
+
+            'error' =>
+                'La publicación en Facebook está desactivada.'
+
+        ];
+
+    }
+
+
+    if (
+        !meta_configuracion_valida()
+    ) {
+
+        return [
+
+            'ok' => false,
+
+            'estado' => 'NO_CONFIGURADO',
+
+            'error' =>
+                'La configuración de Meta está incompleta.'
+
+        ];
+
+    }
+
+
+    $respuesta =
+        meta_request(
+            META_PAGE_ID . '/photos',
+            'POST',
+            [
+
+                'url' =>
+                    $imagen_url,
+
+                'caption' =>
+                    $texto,
+
+                'published' =>
+                    'true',
+
+                'access_token' =>
+                    META_ACCESS_TOKEN
+
+            ]
+        );
+
+
+    if (
+        !$respuesta['ok']
+    ) {
+
+        return [
+
+            'ok' => false,
+
+            'estado' => 'ERROR',
+
+            'error' =>
+                $respuesta['error']
+                ?: 'No fue posible publicar en Facebook.'
+
+        ];
+
+    }
+
+
+    return [
+
+        'ok' => true,
+
+        'estado' => 'PUBLICADO',
+
+        'publicacion_id' =>
+            $respuesta['data']['id']
+            ?? null,
+
+        'data' =>
+            $respuesta['data']
+
+    ];
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| CREAR CONTENEDOR INSTAGRAM
+|--------------------------------------------------------------------------
+*/
+
+function meta_crear_contenedor_instagram(
+    $imagen_url,
+    $texto
+) {
+
+    if (
+        !META_PUBLICAR_INSTAGRAM
+    ) {
+
+        return [
+
+            'ok' => false,
+
+            'estado' => 'NO_CONFIGURADO',
+
+            'error' =>
+                'La publicación en Instagram está desactivada.'
+
+        ];
+
+    }
+
+
+    if (
+        META_INSTAGRAM_USER_ID === '' ||
+        META_INSTAGRAM_USER_ID ===
+            'PON_AQUI_EL_ID_DE_INSTAGRAM'
+    ) {
+
+        return [
+
+            'ok' => false,
+
+            'estado' => 'NO_CONFIGURADO',
+
+            'error' =>
+                'No se configuró el Instagram profesional.'
+
+        ];
+
+    }
+
+
+    $respuesta =
+        meta_request(
+            META_INSTAGRAM_USER_ID . '/media',
+            'POST',
+            [
+
+                'image_url' =>
+                    $imagen_url,
+
+                'caption' =>
+                    $texto,
+
+                'access_token' =>
+                    META_ACCESS_TOKEN
+
+            ]
+        );
+
+
+    if (
+        !$respuesta['ok']
+    ) {
+
+        return [
+
+            'ok' => false,
+
+            'estado' => 'ERROR',
+
+            'error' =>
+                $respuesta['error']
+                ?: 'No fue posible crear el contenido de Instagram.'
+
+        ];
+
+    }
+
+
+    return [
+
+        'ok' => true,
+
+        'creation_id' =>
+            $respuesta['data']['id']
+            ?? null
+
+    ];
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| PUBLICAR INSTAGRAM
+|--------------------------------------------------------------------------
+*/
+
+function meta_publicar_instagram(
+    $imagen_url,
+    $texto
+) {
+
+    $contenedor =
+        meta_crear_contenedor_instagram(
+            $imagen_url,
+            $texto
+        );
+
+
+    if (
+        !$contenedor['ok']
+    ) {
+
+        return $contenedor;
+
+    }
+
+
+    $creation_id =
+        $contenedor['creation_id']
+        ?? '';
+
+
+    if (
+        $creation_id === ''
+    ) {
+
+        return [
+
+            'ok' => false,
+
+            'estado' => 'ERROR',
+
+            'error' =>
+                'Instagram no devolvió el ID del contenedor.'
+
+        ];
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | PUBLICAR CONTENEDOR
+    |--------------------------------------------------------------------------
+    */
+
+    $respuesta =
+        meta_request(
+            META_INSTAGRAM_USER_ID . '/media_publish',
+            'POST',
+            [
+
+                'creation_id' =>
+                    $creation_id,
+
+                'access_token' =>
+                    META_ACCESS_TOKEN
+
+            ]
+        );
+
+
+    if (
+        !$respuesta['ok']
+    ) {
+
+        return [
+
+            'ok' => false,
+
+            'estado' => 'ERROR',
+
+            'error' =>
+                $respuesta['error']
+                ?: 'No fue posible publicar en Instagram.'
+
+        ];
+
+    }
+
+
+    return [
+
+        'ok' => true,
+
+        'estado' => 'PUBLICADO',
+
+        'publicacion_id' =>
+            $respuesta['data']['id']
+            ?? null,
+
+        'data' =>
+            $respuesta['data']
+
+    ];
+}
+```
+
+---
+
+# 4. Crear `publicar_material.php`
+
+Este será el archivo que realmente ejecutará la publicación.
+
+Crea:
+
+```text
+C:\xampp\htdocs\inventario\marketing\publicar_material.php
+```
+
+```php
+<?php
+
+require_once __DIR__ . '/conexion.php';
+require_once __DIR__ . '/meta_api.php';
+
+
+/*
+|--------------------------------------------------------------------------
+| PUBLICAR MATERIAL
+|--------------------------------------------------------------------------
+*/
+
+function publicar_material(
+    mysqli $conexion,
+    int $material_id
+) {
+
+    /*
+    |--------------------------------------------------------------------------
+    | BUSCAR MATERIAL
+    |--------------------------------------------------------------------------
+    */
+
+    $sql = "
+        SELECT
+
+            m.id,
+            m.nombre,
+            m.descripcion,
+            m.ruta_archivo,
+            m.extension,
+            m.estado,
+
+            c.nombre AS categoria,
+
+            ca.nombre AS campana
+
+        FROM marketing_materiales m
+
+        LEFT JOIN marketing_categorias c
+            ON c.id = m.categoria_id
+
+        LEFT JOIN marketing_campanas ca
+            ON ca.id = m.campana_id
+
+        WHERE m.id = ?
+
+        LIMIT 1
+    ";
+
+
+    $stmt =
+        $conexion->prepare($sql);
+
+
+    if (!$stmt) {
+
+        return [
+
+            'ok' => false,
+
+            'error' =>
+                'No fue posible consultar el material.'
+
+        ];
+
+    }
+
+
+    $stmt->bind_param(
+        'i',
+        $material_id
+    );
+
+
+    $stmt->execute();
+
+
+    $resultado =
+        $stmt->get_result();
+
+
+    if (
+        !$resultado ||
+        $resultado->num_rows !== 1
+    ) {
+
+        $stmt->close();
+
+
+        return [
+
+            'ok' => false,
+
+            'error' =>
+                'El material no existe.'
+
+        ];
+
+    }
+
+
+    $material =
+        $resultado->fetch_assoc();
+
+
+    $stmt->close();
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | VALIDAR ESTADO
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        ($material['estado'] ?? '') !==
+        'AUTORIZADO'
+    ) {
+
+        return [
+
+            'ok' => false,
+
+            'error' =>
+                'El material todavía no está autorizado.'
+
+        ];
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | VALIDAR IMAGEN
+    |--------------------------------------------------------------------------
+    */
+
+    $ext =
+        strtolower(
+            trim(
+                $material['extension'] ?? ''
+            )
+        );
+
+
+    $extensionesPermitidas = [
+
+        'jpg',
+        'jpeg',
+        'png',
+        'webp'
+
+    ];
+
+
+    if (
+        !in_array(
+            $ext,
+            $extensionesPermitidas,
+            true
+        )
+    ) {
+
+        return [
+
+            'ok' => false,
+
+            'error' =>
+                'Este material no es una imagen compatible con la publicación automática.'
+
+        ];
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | CONSTRUIR URL PÚBLICA
+    |--------------------------------------------------------------------------
+    */
+
+    $nombreArchivo =
+        basename(
+            $material['ruta_archivo']
+        );
+
+
+    $imagen_url =
+        rtrim(
+            MARKETING_PUBLIC_URL,
+            '/'
+        )
+        . '/'
+        . rawurlencode(
+            $nombreArchivo
+        );
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | CREAR TEXTO
+    |--------------------------------------------------------------------------
+    */
+
+    $texto = '';
+
+
+    if (
+        !empty(
+            $material['nombre']
+        )
+    ) {
+
+        $texto .=
+            $material['nombre'] . "\n\n";
+
+    }
+
+
+    if (
+        !empty(
+            $material['descripcion']
+        )
+    ) {
+
+        $texto .=
+            $material['descripcion'] . "\n\n";
+
+    }
+
+
+    if (
+        !empty(
+            $material['campana']
+        )
+    ) {
+
+        $texto .=
+            '#'
+            . preg_replace(
+                '/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]/u',
+                '',
+                $material['campana']
+            )
+            . "\n";
+
+    }
+
+
+    $texto .=
+        "#GrupoProtec";
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | INSERTAR REGISTRO DE PUBLICACIÓN
+    |--------------------------------------------------------------------------
+    */
+
+    $sqlExiste = "
+        SELECT id
+        FROM marketing_publicaciones
+        WHERE material_id = ?
+        LIMIT 1
+    ";
+
+
+    $stmtExiste =
+        $conexion->prepare(
+            $sqlExiste
+        );
+
+
+    $stmtExiste->bind_param(
+        'i',
+        $material_id
+    );
+
+
+    $stmtExiste->execute();
+
+
+    $resultadoExiste =
+        $stmtExiste->get_result();
+
+
+    if (
+        $resultadoExiste &&
+        $resultadoExiste->num_rows > 0
+    ) {
+
+        $fila =
+            $resultadoExiste->fetch_assoc();
+
+        $publicacion_id =
+            (int)$fila['id'];
+
+        $stmtExiste->close();
+
+    } else {
+
+        $stmtExiste->close();
+
+
+        $sqlInsert = "
+            INSERT INTO marketing_publicaciones
+            (
+                material_id,
+                texto_publicacion
+            )
+            VALUES
+            (
+                ?,
+                ?
+            )
+        ";
+
+
+        $stmtInsert =
+            $conexion->prepare(
+                $sqlInsert
+            );
+
+
+        $stmtInsert->bind_param(
+            'is',
+            $material_id,
+            $texto
+        );
+
+
+        if (
+            !$stmtInsert->execute()
+        ) {
+
+            $stmtInsert->close();
+
+
+            return [
+
+                'ok' => false,
+
+                'error' =>
+                    'No fue posible crear el registro de publicación.'
+
+            ];
+
+        }
+
+
+        $publicacion_id =
+            $stmtInsert->insert_id;
+
+
+        $stmtInsert->close();
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | FACEBOOK
+    |--------------------------------------------------------------------------
+    */
+
+    $facebook =
+        meta_publicar_facebook(
+            $imagen_url,
+            $texto
+        );
+
+
+    if (
+        $facebook['ok']
+    ) {
+
+        $facebook_estado =
+            'PUBLICADO';
+
+        $facebook_id =
+            $facebook['publicacion_id']
+            ?? null;
+
+        $facebook_error = null;
+
+    } else {
+
+        $facebook_estado =
+            $facebook['estado']
+            ?? 'ERROR';
+
+        $facebook_id = null;
+
+        $facebook_error =
+            $facebook['error']
+            ?? 'Error desconocido.';
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | GUARDAR FACEBOOK
+    |--------------------------------------------------------------------------
+    */
+
+    $sqlFacebook = "
+        UPDATE marketing_publicaciones
+        SET
+
+            facebook_estado = ?,
+
+            facebook_publicacion_id = ?,
+
+            facebook_fecha =
+                CASE
+                    WHEN ? = 'PUBLICADO'
+                    THEN NOW()
+                    ELSE facebook_fecha
+                END,
+
+            facebook_error = ?,
+
+            intentos_facebook =
+                intentos_facebook + 1
+
+        WHERE id = ?
+    ";
+
+
+    $stmtFacebook =
+        $conexion->prepare(
+            $sqlFacebook
+        );
+
+
+    $stmtFacebook->bind_param(
+        'ssssi',
+        $facebook_estado,
+        $facebook_id,
+        $facebook_estado,
+        $facebook_error,
+        $publicacion_id
+    );
+
+
+    $stmtFacebook->execute();
+
+
+    $stmtFacebook->close();
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | INSTAGRAM
+    |--------------------------------------------------------------------------
+    */
+
+    $instagram =
+        meta_publicar_instagram(
+            $imagen_url,
+            $texto
+        );
+
+
+    if (
+        $instagram['ok']
+    ) {
+
+        $instagram_estado =
+            'PUBLICADO';
+
+        $instagram_id =
+            $instagram['publicacion_id']
+            ?? null;
+
+        $instagram_error = null;
+
+    } else {
+
+        $instagram_estado =
+            $instagram['estado']
+            ?? 'ERROR';
+
+        $instagram_id = null;
+
+        $instagram_error =
+            $instagram['error']
+            ?? 'Error desconocido.';
+
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | GUARDAR INSTAGRAM
+    |--------------------------------------------------------------------------
+    */
+
+    $sqlInstagram = "
+        UPDATE marketing_publicaciones
+        SET
+
+            instagram_estado = ?,
+
+            instagram_publicacion_id = ?,
+
+            instagram_fecha =
+                CASE
+                    WHEN ? = 'PUBLICADO'
+                    THEN NOW()
+                    ELSE instagram_fecha
+                END,
+
+            instagram_error = ?,
+
+            intentos_instagram =
+                intentos_instagram + 1,
+
+            ultima_publicacion = NOW()
+
+        WHERE id = ?
+    ";
+
+
+    $stmtInstagram =
+        $conexion->prepare(
+            $sqlInstagram
+        );
+
+
+    $stmtInstagram->bind_param(
+        'ssssi',
+        $instagram_estado,
+        $instagram_id,
+        $instagram_estado,
+        $instagram_error,
+        $publicacion_id
+    );
+
+
+    $stmtInstagram->execute();
+
+
+    $stmtInstagram->close();
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | RESULTADO
+    |--------------------------------------------------------------------------
+    */
+
+    return [
+
+        'ok' =>
+            $facebook['ok'] ||
+            $instagram['ok'],
+
+        'publicacion_id' =>
+            $publicacion_id,
+
+        'facebook' =>
+            $facebook,
+
+        'instagram' =>
+            $instagram
+
+    ];
+}
+```
+
+---
+
+# 5. Ahora modificamos `autorizaciones.php`
+
+Aquí está la parte importante.
+
+**No vamos a publicar dentro de la transacción.**
+
+Tu código actualmente termina aquí:
+
+```php
+$conexion->commit();
+```
+
+Después de eso tienes:
+
+```php
+if ($accion === 'AUTORIZADO') {
+
+    $mensaje =
+        "El material fue autorizado correctamente.";
+
+} else {
+
+    $mensaje =
+        "El material fue rechazado correctamente.";
+
+}
+```
+
+Vamos a cambiar esa parte.
+
+Primero, arriba de `autorizaciones.php`, junto con tus `require_once`, agrega:
+
+```php
+require_once __DIR__ . '/publicar_material.php';
+```
+
+Te quedaría:
+
+```php
+require_once __DIR__ . '/conexion.php';
+require_once __DIR__ . '/seguridad.php';
+require_once __DIR__ . '/publicar_material.php';
+
+verificar_gerencia_marketing();
+```
+
+---
+
+## 6. Sustituir el mensaje después de `commit()`
+
+Busca en tu archivo:
+
+```php
+$conexion->commit();
+
+
+if ($accion === 'AUTORIZADO') {
+
+    $mensaje =
+        "El material fue autorizado correctamente.";
+
+} else {
+
+    $mensaje =
+        "El material fue rechazado correctamente.";
+
+}
+```
+
+Y reemplázalo por:
+
+```php
+$conexion->commit();
+
+
+/*
+|--------------------------------------------------------------------------
+| PUBLICACIÓN AUTOMÁTICA
+|--------------------------------------------------------------------------
+*/
+
+if ($accion === 'AUTORIZADO') {
+
+    $resultadoPublicacion =
+        publicar_material(
+            $conexion,
+            $material_id
+        );
+
+
+    if (
+        $resultadoPublicacion['ok']
+    ) {
+
+        $facebook_ok =
+            $resultadoPublicacion['facebook']['ok']
+            ?? false;
+
+        $instagram_ok =
+            $resultadoPublicacion['instagram']['ok']
+            ?? false;
+
+
+        if (
+            $facebook_ok &&
+            $instagram_ok
+        ) {
+
+            $mensaje =
+                "El material fue autorizado y publicado correctamente en Facebook e Instagram.";
+
+        } elseif (
+            $facebook_ok
+        ) {
+
+            $mensaje =
+                "El material fue autorizado y publicado en Facebook. Instagram presentó un problema.";
+
+        } elseif (
+            $instagram_ok
+        ) {
+
+            $mensaje =
+                "El material fue autorizado y publicado en Instagram. Facebook presentó un problema.";
+
+        } else {
+
+            $mensaje =
+                "El material fue autorizado, pero no pudo publicarse automáticamente.";
+
+        }
+
+    } else {
+
+        $mensaje =
+            "El material fue autorizado correctamente. La publicación automática no pudo ejecutarse.";
+
+    }
+
+} else {
+
+    $mensaje =
+        "El material fue rechazado correctamente.";
+
+}
+```
+
+---
+
+# 7. Hay una modificación importante que debemos hacer
+
+Tu sistema actualmente permite autorizar **PDF, Word, Excel, PowerPoint, MP4, etc.**
+
+Facebook/Instagram no deben tratar todos esos archivos como si fueran una imagen.
+
+Por eso el comportamiento será:
+
+### Imagen
+
+```text
+AUTORIZADO
+     ↓
+Facebook ✓
+Instagram ✓
+```
+
+### PDF
+
+```text
+AUTORIZADO
+     ↓
+No publicación automática
+     ↓
+Queda registrado
+```
+
+### Word/Excel
+
+```text
+AUTORIZADO
+     ↓
+No publicación automática
+```
+
+Después podemos crear publicación automática de video para MP4, pero primero recomiendo estabilizar imágenes.
+
+---
+
+# 8. Necesitamos guardar también el resultado en la auditoría
+
+Tu auditoría ya está muy bien planteada.
+
+Podemos agregar después:
+
+```text
+PUBLICAR_FACEBOOK
+PUBLICAR_INSTAGRAM
+ERROR_PUBLICACION_FACEBOOK
+ERROR_PUBLICACION_INSTAGRAM
+REINTENTAR_PUBLICACION
+```
+
+Así en `auditoria_sistema.php` tendrás algo como:
+
+| Fecha            | Usuario | Acción             | Módulo         | Resultado         |
+| ---------------- | ------- | ------------------ | -------------- | ----------------- |
+| 18/09/2026 09:30 | Lizbeth | AUTORIZAR_MATERIAL | AUTORIZACIONES | Campaña Seguridad |
+| 18/09/2026 09:30 | SISTEMA | PUBLICAR_FACEBOOK  | PUBLICACIONES  | Publicado         |
+| 18/09/2026 09:30 | SISTEMA | PUBLICAR_INSTAGRAM | PUBLICACIONES  | Publicado         |
+
+Esto lo agregaría en la siguiente parte.
+
+---
+
+# 9. Muy importante: tu `ruta_archivo`
+
+Tu código actual muestra:
+
+```php
+$material['ruta_archivo']
+```
+
+y lo utiliza directamente:
+
+```php
+<img src="<?= htmlspecialchars($material['ruta_archivo']) ?>">
+```
+
+Eso está bien para tu navegador local.
+
+Pero para Instagram necesitaremos transformar esa ruta en algo como:
+
+```text
+https://www.grupoprotec.com/inventario/marketing/uploads/imagen.jpg
+```
+
+No:
+
+```text
+C:/xampp/htdocs/inventario/marketing/uploads/imagen.jpg
+```
+
+ni:
+
+```text
+http://grupoprotec/inventario/marketing/uploads/imagen.jpg
+```
+
+Instagram necesita poder descargar la imagen desde Internet.
+
+---
+
+# 10. Cómo quedará finalmente tu sistema
+
+La estructura que te recomiendo será:
+
+```text
+C:\xampp\htdocs\inventario\
+│
+├── conexion.php
+├── seguridad.php
+│
+└── marketing\
+    │
+    ├── autorizaciones.php
+    │
+    ├── publicar_material.php
+    │
+    ├── meta_api.php
+    │
+    ├── meta_config.php
+    │
+    ├── publicaciones.php       ← siguiente módulo
+    │
+    ├── reintentar_publicacion.php
+    │
+    └── uploads\
+        │
+        ├── imagen1.jpg
+        ├── imagen2.png
+        └── ...
+```
+
+Y en MySQL:
+
+```text
+marketing_materiales
+        │
+        ├── PENDIENTE
+        ├── AUTORIZADO
+        └── RECHAZADO
+                 │
+                 ▼
+       marketing_publicaciones
+                 │
+        ┌────────┴────────┐
+        ▼                 ▼
+    FACEBOOK          INSTAGRAM
+        │                 │
+    PUBLICADO          PUBLICADO
+    ERROR              ERROR
+```
+
+### Pero todavía NO pongas tus tokens reales.
+
+Primero debemos hacer una cosa importante: **ver exactamente cómo tienes creada `marketing_materiales` y cómo estás guardando `ruta_archivo`**. Eso determinará cómo construir correctamente la URL pública y evitar que rompamos la carga de imágenes que ya tienes.
+
+Pásame el resultado de esta consulta de phpMyAdmin:
+
+```sql
+DESCRIBE marketing_materiales;
+```
+
+y también, si puedes, **un ejemplo real de `ruta_archivo`** de una fila de `marketing_materiales`.
+
+Con esos dos datos te doy la siguiente parte ya ajustada a tu base actual: **`publicaciones.php` + reintento + registro de errores + conexión de Meta**, sin inventar nombres de campos ni modificar lo que ya funciona.
